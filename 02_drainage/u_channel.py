@@ -3,15 +3,26 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# ⚠️ [중요] st.set_page_config()는 main.py에서 이미 실행되었으므로 
-# 이 파일에서는 절대로 작성하면 안 됩니다. (오류 발생의 주원인)
-
 @st.cache_data
 def load_rainfall_data():
-    # 현재 u_channel.py 파일이 있는 폴더(02_drainage) 경로 자동 인식
+    # 1. idf.xls 파일 위치 자동 탐색 (pages/02_drainage/ 폴더 또는 최상위 루트 폴더)
     current_dir = os.path.dirname(__file__)
-    excel_path = os.path.join(current_dir, 'idf.xls')
+    possible_paths = [
+        os.path.join(current_dir, 'idf.xls'),                  # pages/02_drainage/idf.xls
+        os.path.join(current_dir, '..', '..', 'idf.xls'),      # 루트 폴더/idf.xls
+        os.path.join(os.getcwd(), 'idf.xls')                   # 현재 실행 경로/idf.xls
+    ]
     
+    excel_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            excel_path = path
+            break
+            
+    if not excel_path:
+        raise FileNotFoundError("'idf.xls' 파일을 찾을 수 없습니다. pages/02_drainage/ 폴더 또는 최상위 폴더에 idf.xls 파일을 위치시켜 주세요.")
+    
+    # 2. 엑셀 파일 데이터 읽기
     xls = pd.ExcelFile(excel_path)
     regions_dict = {}
     for sheet_name in xls.sheet_names:
@@ -31,8 +42,8 @@ def calculate_u_type_ditch():
         regions_dict = load_rainfall_data()
         region_list = sorted(list(regions_dict.keys()))
     except Exception as e:
-        st.error(f"⚠️ 엑셀 파일(idf.xls) 읽기 오류: {e}")
-        st.info("💡 'pages/02_drainage' 폴더 안에 'idf.xls' 파일이 존재하는지 확인해 주세요.")
+        st.error(f"⚠️ 오류 발생: {e}")
+        st.info("💡 깃허브 또는 PC의 'pages/02_drainage/' 폴더에 'idf.xls' 파일이 존재하는지 확인해 주세요.")
         return
     
     st.sidebar.header("📝 일반사항 및 입력")
@@ -51,7 +62,7 @@ def calculate_u_type_ditch():
     slope_pct = st.sidebar.number_input("수로경사 (%)", min_value=0.01, value=1.0, step=0.1)
     n = st.sidebar.number_input("조도계수 (n)", min_value=0.001, value=0.015, step=0.001, format="%.3f")
     
-    # --- 강우강도 보간 계산 ---
+    # 강우강도 보간 계산
     region_data = regions_dict[selected_region]
     times = np.array(sorted(region_data.keys()))
     intensities = np.array([region_data[t] for t in times])
@@ -61,7 +72,7 @@ def calculate_u_type_ditch():
     else:
         I = float(np.interp(tc, times, intensities))
         
-    # --- 1. 설계유량(Qd) 계산 ---
+    # 1. 설계유량(Qd) 산출
     Qd = (1 / 360) * C * I * A
     
     st.subheader("[1] 설계유량(Qd) 산출 (합리식)")
@@ -75,7 +86,7 @@ def calculate_u_type_ditch():
         st.write(f"- 유출계수(C): **{C:.2f}**")
         st.info(f"▶ **설계유량 (Qd) = {Qd:.3f} ㎥/sec**")
         
-    # --- 2. 통수유량(Q) 및 유속(V) 계산 ---
+    # 2. 통수유량(Q) 및 유속(V) 계산
     A_c = B * H
     P = B + 2 * H
     R = A_c / P
@@ -93,7 +104,7 @@ def calculate_u_type_ditch():
         st.write(f"- 평균유속 (V): **{V:.3f} m/sec**")
         st.info(f"▶ **통수유량 (Q) = {Q:.3f} ㎥/sec**")
         
-    # --- 3. 안전성 판정 ---
+    # 3. 안전성 판정
     st.subheader("[3] 최종 안전성 판정")
     is_safe = Q >= Qd
     if is_safe:
@@ -101,5 +112,4 @@ def calculate_u_type_ditch():
     else:
         st.error(f"❌ N.G. (통수유량 Q = {Q:.3f} ㎥/s < 설계유량 Qd = {Qd:.3f} ㎥/s — 단면 확장 필요)")
 
-# 🚀 [핵심] 이 페이지가 열릴 때 메인 계산 함수를 실행합니다.
 calculate_u_type_ditch()
